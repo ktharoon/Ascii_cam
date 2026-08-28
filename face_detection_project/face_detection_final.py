@@ -71,6 +71,15 @@ hand_enabled = True
 # Filter modes: 0=None, 1=Grayscale, 2=ASCII Art, 3=Glitch
 filter_mode = 1  # start with grayscale as default
 
+# Point manipulation state
+points_enabled = False          # Whether to show and manipulate points
+points_visible = False          # Whether points are currently visible
+selected_point_index = -1       # Index of currently selected point (-1 = none)
+point_positions = []            # List of 4 points [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
+point_radius = 8                # Radius for drawing points
+point_color = (0, 255, 255)     # Yellow color for points (BGR)
+point_threshold = 20            # Distance threshold for point selection (pixels)
+
 # For video timestamp
 frame_count = 0
 fps = 30  # Assumed FPS for timestamp calculation
@@ -78,7 +87,8 @@ fps = 30  # Assumed FPS for timestamp calculation
 print("Starting face and hand detection. Press 'q' to quit.")
 print("Press 'f' to toggle face detection, 'h' to toggle hand detection.")
 print("Press keys 0-3 to select filter: 0=None, 1=Grayscale, 2=ASCII Art, 3=Glitch")
-print("Make 'L' shape with thumb and index finger on both hands to activate selected filter!")
+print("Make 'L' shape with thumb and index finger on both hands to initialize point manipulation!")
+print("Pinch thumb+index to move points, make L shape again to reset points.")
 print("Note: Make sure you have adequate lighting and your face/hands are visible to the camera.")
 
 def is_thumb_index_extended(landmarks):
@@ -123,6 +133,26 @@ def get_hand_landmark_points(landmarks, frame_shape):
         return (thumb_x, thumb_y), (index_x, index_y)
     except:
         return None, None
+
+
+def is_thumb_index_pinch(landmarks, threshold=0.05):
+    """
+    Check if thumb and index finger are pinched (close together)
+    Returns True if distance between thumb and index tips is below threshold
+    """
+    try:
+        # Get normalized coordinates (0-1 range)
+        thumb_tip = np.array([landmarks[4].x, landmarks[4].y])
+        index_tip = np.array([landmarks[8].x, landmarks[8].y])
+
+        # Calculate distance between thumb and index tips
+        distance = np.linalg.norm(thumb_tip - index_tip)
+
+        # Return True if distance is below threshold (normalized)
+        return distance < threshold
+    except:
+        return False
+
 
 def apply_ascii_art(frame, mask):
     """
@@ -350,86 +380,167 @@ while True:
             cv2.putText(frame, " | ".join(debug_text), (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-        # If we have both hands making the sign, apply selected filter
+        # Handle L shape gesture for point initialization and manipulation
         if left_hand_points and right_hand_points and left_gesture and right_gesture:
-            print("Both hands detected with gesture! Applying selected filter.")  # Debug
+            # Initialize or reset points when L shape is first detected
+            if not points_enabled:
+                points_enabled = True
+                points_visible = True
+                selected_point_index = -1
 
-            # Re-extract thumb and index points for both hands
-            left_thumb_pt = left_index_pt = right_thumb_pt = right_index_pt = None
-            if detection_result.hand_landmarks:
-                for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
-                    handedness = "Unknown"
-                    if (detection_result.handedness and
-                        len(detection_result.handedness) > hand_idx and
-                        len(detection_result.handedness[hand_idx]) > 0):
-                        handedness = detection_result.handedness[hand_idx][0].category_name
+                # Initialize points as a rectangle based on current hand positions
+                # Re-extract thumb and index points for both hands
+                left_thumb_pt = left_index_pt = right_thumb_pt = right_index_pt = None
+                if detection_result.hand_landmarks:
+                    for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
+                        handedness = "Unknown"
+                        if (detection_result.handedness and
+                            len(detection_result.handedness) > hand_idx and
+                            len(detection_result.handedness[hand_idx]) > 0):
+                            handedness = detection_result.handedness[hand_idx][0].category_name
 
-                    thumb_point, index_point = get_hand_landmark_points(hand_landmarks, frame.shape)
+                        thumb_point, index_point = get_hand_landmark_points(hand_landmarks, frame.shape)
 
-                    if handedness == "Left" and thumb_point and index_point:
-                        left_thumb_pt = thumb_point
-                        left_index_pt = index_point
-                    elif handedness == "Right" and thumb_point and index_point:
-                        right_thumb_pt = thumb_point
-                        right_index_pt = index_point
+                        if handedness == "Left" and thumb_point and index_point:
+                            left_thumb_pt = thumb_point
+                            left_index_pt = index_point
+                        elif handedness == "Right" and thumb_point and index_point:
+                            right_thumb_pt = thumb_point
+                            right_index_pt = index_point
 
-            # If we have all four points, compute rectangle based on hand distance and finger spread
-            if all([left_thumb_pt, left_index_pt, right_thumb_pt, right_index_pt]):
-                # Convert points to numpy arrays for vector math
-                L_T = np.array(left_thumb_pt, dtype=np.float32)
-                L_I = np.array(left_index_pt, dtype=np.float32)
-                R_T = np.array(right_thumb_pt, dtype=np.float32)
-                R_I = np.array(right_index_pt, dtype=np.float32)
+                # Set initial 4 points (corners of rectangle)
+                if all([left_thumb_pt, left_index_pt, right_thumb_pt, right_index_pt]):
+                    # Convert points to numpy arrays for vector math
+                    L_T = np.array(left_thumb_pt, dtype=np.float32)
+                    L_I = np.array(left_index_pt, dtype=np.float32)
+                    R_T = np.array(right_thumb_pt, dtype=np.float32)
+                    R_I = np.array(right_index_pt, dtype=np.float32)
 
-                # Base vector between thumbs (distance between hands)
-                base_vec = R_T - L_T
-                base_len = np.linalg.norm(base_vec)
-                if base_len > 0:
-                    unit_base = base_vec / base_len
-                    # Perpendicular pointing upward (negative y in image coords)
-                    perp_up = np.array([unit_base[1], -unit_base[0]], dtype=np.float32)
+                    # Base vector between thumbs (distance between hands)
+                    base_vec = R_T - L_T
+                    base_len = np.linalg.norm(base_vec)
+                    if base_len > 0:
+                        unit_base = base_vec / base_len
+                        # Perpendicular pointing upward (negative y in image coords)
+                        perp_up = np.array([unit_base[1], -unit_base[0]], dtype=np.float32)
+                    else:
+                        # fallback: use horizontal direction
+                        unit_base = np.array([1.0, 0.0], dtype=np.float32)
+                        perp_up = np.array([0.0, -1.0], dtype=np.float32)
+
+                    # Finger spread distances (thumb to index) for each hand
+                    left_finger_dist = np.linalg.norm(L_I - L_T)
+                    right_finger_dist = np.linalg.norm(R_I - R_T)
+                    # Use average as rectangle height
+                    height = (left_finger_dist + right_finger_dist) * 0.5  # average
+
+                    # Compute rectangle corners
+                    # Base from left thumb to right thumb
+                    p1 = L_T
+                    p2 = R_T
+                    # Top side shifted upward by height * perp_up
+                    p3 = R_T + perp_up * height
+                    p4 = L_T + perp_up * height
+
+                    point_positions = [tuple(p1.astype(int)), tuple(p2.astype(int)),
+                                     tuple(p3.astype(int)), tuple(p4.astype(int))]
                 else:
-                    # fallback: use horizontal direction
-                    unit_base = np.array([1.0, 0.0], dtype=np.float32)
-                    perp_up = np.array([0.0, -1.0], dtype=np.float32)
+                    # Fallback: create a default rectangle in center of frame
+                    h, w = frame.shape[:2]
+                    center_x, center_y = w // 2, h // 2
+                    size = 100
+                    point_positions = [
+                        (center_x - size, center_y - size),  # top-left
+                        (center_x + size, center_y - size),  # top-right
+                        (center_x + size, center_y + size),  # bottom-right
+                        (center_x - size, center_y + size)   # bottom-left
+                    ]
 
-                # Finger spread distances (thumb to index) for each hand
-                left_finger_dist = np.linalg.norm(L_I - L_T)
-                right_finger_dist = np.linalg.norm(R_I - R_T)
-                # Use average as rectangle height
-                height = (left_finger_dist + right_finger_dist) * 0.5  # average
-                # Optionally clamp height to reasonable range
-                # height = np.clip(height, 10, 200)
-
-                # Compute rectangle corners
-                # Base from left thumb to right thumb
-                p1 = L_T
-                p2 = R_T
-                # Top side shifted upward by height * perp_up
-                p3 = R_T + perp_up * height
-                p4 = L_T + perp_up * height
-
-                points = np.array([p1, p2, p3, p4], dtype=np.int32)
-
-                # Create mask for the polygon
-                mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-                cv2.fillPoly(mask, [points], 255)
-
-                # Apply the selected filter
-                frame = apply_filter(frame, mask, filter_mode)
-
-                # Draw the polygon outline for visualization
-                cv2.polylines(frame, [points], True, (0, 255, 0), 2)
-
-                # Add text indicator
-                filter_names = ["None", "Grayscale", "ASCII Art", "Glitch"]
-                cv2.putText(frame, f"Filter: {filter_names[filter_mode]}", (10, 60),
-                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                print(f"Applied filter: {filter_names[filter_mode]}")  # Debug
+                print("Points initialized for manipulation")  # Debug
             else:
-                print("Could not extract all four points for rectangle")  # Debug
-                cv2.putText(frame, "Points error", (10, 60),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                # Points are already enabled, check for pinch gestures to move points
+                if detection_result.hand_landmarks:
+                    for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
+                        handedness = "Unknown"
+                        if (detection_result.handedness and
+                            len(detection_result.handedness) > hand_idx and
+                            len(detection_result.handedness[hand_idx]) > 0):
+                            handedness = detection_result.handedness[hand_idx][0].category_name
+
+                        # Check for pinch gesture (thumb and index close together)
+                        if is_thumb_index_pinch(hand_landmarks, threshold=0.04):  # Stricter threshold for pinch
+                            # Get thumb tip position (we'll use this as the "pinch point")
+                            thumb_point, _ = get_hand_landmark_points(hand_landmarks, frame.shape)
+                            if thumb_point:
+                                # Find closest point to this thumb position
+                                if point_positions:
+                                    thumb_array = np.array(thumb_point)
+                                    distances = [np.linalg.norm(thumb_array - np.array(pos)) for pos in point_positions]
+                                    closest_idx = np.argmin(distances)
+
+                                    # If within threshold, select this point for dragging
+                                    if distances[closest_idx] < point_threshold:
+                                        selected_point_index = closest_idx
+                                    else:
+                                        selected_point_index = -1
+                                else:
+                                    selected_point_index = -1
+                            else:
+                                selected_point_index = -1
+                        else:
+                            # No pinch, release any selected point
+                            selected_point_index = -1
+
+            # If points are enabled, draw them and allow manipulation
+            if points_enabled and points_visible:
+                # Update selected point position if dragging
+                if selected_point_index != -1 and selected_point_index < len(point_positions):
+                    # Get current position of index finger (as pointer) for the selected hand
+                    # We'll use the right hand for simplicity, or determine based on which hand is pinching
+                    if detection_result.hand_landmarks:
+                        # Use the first hand that's pinching, or right hand as default
+                        index_point = None
+                        for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
+                            if is_thumb_index_pinch(hand_landmarks, threshold=0.04):
+                                _, index_point = get_hand_landmark_points(hand_landmarks, frame.shape)
+                                break
+
+                        if index_point:
+                            point_positions[selected_point_index] = index_point
+
+                # Draw all points
+                for i, point in enumerate(point_positions):
+                    color = (0, 255, 255) if i != selected_point_index else (0, 0, 255)  # Yellow normally, red when selected
+                    cv2.circle(frame, point, point_radius, color, -1)
+                    cv2.circle(frame, point, point_radius + 2, (255, 255, 255), 2)  # White outline
+
+                # Create mask from the 4 points (quadrilateral)
+                if len(point_positions) == 4:
+                    points_array = np.array(point_positions, dtype=np.int32)
+                    mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+                    cv2.fillPoly(mask, [points_array], 255)
+
+                    # Apply the selected filter
+                    frame = apply_filter(frame, mask, filter_mode)
+
+                    # Draw the polygon outline for visualization
+                    cv2.polylines(frame, [points_array], True, (0, 255, 0), 2)
+
+                    # Add text indicator
+                    filter_names = ["None", "Grayscale", "ASCII Art", "Glitch"]
+                    cv2.putText(frame, f"Filter: {filter_names[filter_mode]} - Drag points to adjust", (10, 60),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                # Instructions
+                cv2.putText(frame, "Pinch thumb+index to move points, make L shape to reset", (10, frame.shape[0] - 20),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        else:
+            # Reset point manipulation when L shape is not maintained
+            if points_enabled:
+                points_enabled = False
+                points_visible = False
+                selected_point_index = -1
+                # Keep point_positions for next initialization
         elif left_hand_points or right_hand_points:
             # Show which hand(s) detected for debugging
             detected = []
