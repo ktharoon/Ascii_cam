@@ -541,13 +541,6 @@ while True:
                 points_visible = False
                 selected_point_index = -1
                 # Keep point_positions for next initialization
-        elif left_hand_points or right_hand_points:
-            # Show which hand(s) detected for debugging
-            detected = []
-            if left_hand_points: detected.append("Left")
-            if right_hand_points: detected.append("Right")
-            cv2.putText(frame, f"{' & '.join(detected)} hand gesture ready", (10, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
         # Draw hand landmarks (manual drawing for consistent style)
         if detection_result.hand_landmarks:
