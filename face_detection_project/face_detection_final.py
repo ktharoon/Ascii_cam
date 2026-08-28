@@ -380,11 +380,12 @@ while True:
             cv2.putText(frame, " | ".join(debug_text), (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-        # Handle L shape gesture for point initialization and manipulation
+        # Handle L shape gesture to toggle point manipulation on/off
         if left_hand_points and right_hand_points and left_gesture and right_gesture:
-            # Initialize or reset points when L shape is first detected
-            if not points_enabled:
-                points_enabled = True
+            # Toggle points_enabled state
+            points_enabled = not points_enabled
+            if points_enabled:
+                # Enable point manipulation: initialize points
                 points_visible = True
                 selected_point_index = -1
 
@@ -456,91 +457,89 @@ while True:
                         (center_x - size, center_y + size)   # bottom-left
                     ]
 
-                print("Points initialized for manipulation")  # Debug
+                print("Points enabled for manipulation")  # Debug
             else:
-                # Points are already enabled, check for pinch gestures to move points
-                if detection_result.hand_landmarks:
-                    for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
-                        handedness = "Unknown"
-                        if (detection_result.handedness and
-                            len(detection_result.handedness) > hand_idx and
-                            len(detection_result.handedness[hand_idx]) > 0):
-                            handedness = detection_result.handedness[hand_idx][0].category_name
+                # Disable point manipulation
+                points_visible = False
+                selected_point_index = -1
+                # Keep point_positions for next enable
+                print("Points disabled")  # Debug
 
-                        # Check for pinch gesture (thumb and index close together)
-                        if is_thumb_index_pinch(hand_landmarks, threshold=0.04):  # Stricter threshold for pinch
-                            # Get thumb tip position (we'll use this as the "pinch point")
-                            thumb_point, _ = get_hand_landmark_points(hand_landmarks, frame.shape)
-                            if thumb_point:
-                                # Find closest point to this thumb position
-                                if point_positions:
-                                    thumb_array = np.array(thumb_point)
-                                    distances = [np.linalg.norm(thumb_array - np.array(pos)) for pos in point_positions]
-                                    closest_idx = np.argmin(distances)
+        # If point manipulation is enabled, handle point selection/drawing each frame
+        if points_enabled and points_visible:
+            # Check for pinch gestures to move points
+            if detection_result.hand_landmarks:
+                for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
+                    handedness = "Unknown"
+                    if (detection_result.handedness and
+                        len(detection_result.handedness) > hand_idx and
+                        len(detection_result.handedness[hand_idx]) > 0):
+                        handedness = detection_result.handedness[hand_idx][0].category_name
 
-                                    # If within threshold, select this point for dragging
-                                    if distances[closest_idx] < point_threshold:
-                                        selected_point_index = closest_idx
-                                    else:
-                                        selected_point_index = -1
+                    # Check for pinch gesture (thumb and index close together)
+                    if is_thumb_index_pinch(hand_landmarks, threshold=0.04):  # Stricter threshold for pinch
+                        # Get thumb tip position (we'll use this as the "pinch point")
+                        thumb_point, _ = get_hand_landmark_points(hand_landmarks, frame.shape)
+                        if thumb_point:
+                            # Find closest point to this thumb position
+                            if point_positions:
+                                thumb_array = np.array(thumb_point)
+                                distances = [np.linalg.norm(thumb_array - np.array(pos)) for pos in point_positions]
+                                closest_idx = np.argmin(distances)
+
+                                # If within threshold, select this point for dragging
+                                if distances[closest_idx] < point_threshold:
+                                    selected_point_index = closest_idx
                                 else:
                                     selected_point_index = -1
                             else:
                                 selected_point_index = -1
                         else:
-                            # No pinch, release any selected point
                             selected_point_index = -1
+                    else:
+                        # No pinch, release any selected point
+                        selected_point_index = -1
 
-            # If points are enabled, draw them and allow manipulation
-            if points_enabled and points_visible:
-                # Update selected point position if dragging
-                if selected_point_index != -1 and selected_point_index < len(point_positions):
-                    # Get current position of index finger (as pointer) for the selected hand
-                    # We'll use the right hand for simplicity, or determine based on which hand is pinching
-                    if detection_result.hand_landmarks:
-                        # Use the first hand that's pinching, or right hand as default
-                        index_point = None
-                        for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
-                            if is_thumb_index_pinch(hand_landmarks, threshold=0.04):
-                                _, index_point = get_hand_landmark_points(hand_landmarks, frame.shape)
-                                break
+            # Update selected point position if dragging
+            if selected_point_index != -1 and selected_point_index < len(point_positions):
+                # Get current position of index finger (as pointer) for the selected hand
+                # We'll use the first hand that's pinching
+                index_point = None
+                if detection_result.hand_landmarks:
+                    for hand_idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
+                        if is_thumb_index_pinch(hand_landmarks, threshold=0.04):
+                            _, index_point = get_hand_landmark_points(hand_landmarks, frame.shape)
+                            break
 
-                        if index_point:
-                            point_positions[selected_point_index] = index_point
+                if index_point:
+                    point_positions[selected_point_index] = index_point
 
-                # Draw all points
-                for i, point in enumerate(point_positions):
-                    color = (0, 255, 255) if i != selected_point_index else (0, 0, 255)  # Yellow normally, red when selected
-                    cv2.circle(frame, point, point_radius, color, -1)
-                    cv2.circle(frame, point, point_radius + 2, (255, 255, 255), 2)  # White outline
+            # Draw all points
+            for i, point in enumerate(point_positions):
+                color = (0, 255, 255) if i != selected_point_index else (0, 0, 255)  # Yellow normally, red when selected
+                cv2.circle(frame, point, point_radius, color, -1)
+                cv2.circle(frame, point, point_radius + 2, (255, 255, 255), 2)  # White outline
 
-                # Create mask from the 4 points (quadrilateral)
-                if len(point_positions) == 4:
-                    points_array = np.array(point_positions, dtype=np.int32)
-                    mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-                    cv2.fillPoly(mask, [points_array], 255)
+            # Create mask from the 4 points (quadrilateral)
+            if len(point_positions) == 4:
+                points_array = np.array(point_positions, dtype=np.int32)
+                mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+                cv2.fillPoly(mask, [points_array], 255)
 
-                    # Apply the selected filter
-                    frame = apply_filter(frame, mask, filter_mode)
+                # Apply the selected filter
+                frame = apply_filter(frame, mask, filter_mode)
 
-                    # Draw the polygon outline for visualization
-                    cv2.polylines(frame, [points_array], True, (0, 255, 0), 2)
+                # Draw the polygon outline for visualization
+                cv2.polylines(frame, [points_array], True, (0, 255, 0), 2)
 
-                    # Add text indicator
-                    filter_names = ["None", "Grayscale", "ASCII Art", "Glitch"]
-                    cv2.putText(frame, f"Filter: {filter_names[filter_mode]} - Drag points to adjust", (10, 60),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                # Add text indicator
+                filter_names = ["None", "Grayscale", "ASCII Art", "Glitch"]
+                cv2.putText(frame, f"Filter: {filter_names[filter_mode]} - Drag points to adjust", (10, 60),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
                 # Instructions
-                cv2.putText(frame, "Pinch thumb+index to move points, make L shape to reset", (10, frame.shape[0] - 20),
+                cv2.putText(frame, "Pinch thumb+index to move points, make L shape to toggle on/off", (10, frame.shape[0] - 20),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        else:
-            # Reset point manipulation when L shape is not maintained
-            if points_enabled:
-                points_enabled = False
-                points_visible = False
-                selected_point_index = -1
-                # Keep point_positions for next initialization
 
         # Draw hand landmarks (manual drawing for consistent style)
         if detection_result.hand_landmarks:
