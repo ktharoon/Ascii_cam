@@ -1,46 +1,36 @@
-# ASCII Camera - Real-time ASCII Art Webcam with Gesture Controls
+# ASCII Camera - Real-time Full-Frame ASCII Art Webcam
 
-An interactive real-time ASCII art webcam application built with OpenCV and MediaPipe. Transform your webcam feed into live ASCII art with hand gesture controls for dynamic filter application and region selection.
+A simple, lightweight real-time ASCII art webcam application built with OpenCV. Transform your entire webcam feed into live color ASCII art with 16:9 fullscreen support.
 
 ## Features
 
-- **Live ASCII Art Conversion**: Real-time webcam feed converted to detailed ASCII art with color preservation
-- **Hand Gesture Controls**: 
-  - **L-Shape Gesture** (thumb + index extended): Toggle point manipulation mode on/off
-  - **Pinch Gesture** (thumb + index touching): Select and drag points to resize/move the ASCII filter region
-- **Interactive Point Manipulation**: 4 draggable points create a resizable quadrilateral mask for applying filters to specific regions
-- **Multiple Filter Modes**:
-  - `0` - None (original feed)
-  - `1` - Grayscale
-  - `2` - **ASCII Art** (pure white characters on black background inside mask, original feed outside)
-  - `3` - Glitch Effect (RGB channel shift + noise)
-- **Ultra-Detailed Rendering**: 5×10 pixel cells with 74-character extended set for maximum detail density
-- **High-Resolution Display**: Processes at camera resolution, upscales to 1600×900 for crisp viewing
-- **Video-Matched Performance**: Requests 960×540 @ 60 FPS to match high-quality video properties
-- **Color Preservation**: Maintains original webcam colors with moderate enhancement for visibility
-- **Real-time Performance**: 15-30 FPS depending on system (optimized with region-based processing and grayscale reuse)
+- **Live Full-Frame ASCII Art**: Real-time webcam feed converted to detailed color ASCII art across the entire frame
+- **16:9 Full HD Resolution**: Runs at 1920×1080 (Full HD) with automatic fallback to camera's supported resolution
+- **Fullscreen Mode**: Launches in fullscreen by default, press `f` to toggle
+- **Bright & Detailed Output**: Enhanced contrast (2.2×) and brightness for clear, visible ASCII characters
+- **Color Preservation**: Maintains original webcam colors with brightness boost for visibility
+- **Optimized Cell Size**: 6×12 pixel cells for balanced detail and readability
+- **Real-time Performance**: Smooth 30+ FPS on most systems
+- **Zero Dependencies Beyond OpenCV & NumPy**: No MediaPipe or complex ML models required
 
 ## Requirements
 
 - Python 3.x
 - OpenCV (`opencv-python` package)
 - NumPy (usually comes with OpenCV)
-- MediaPipe (`mediapipe` package)
 
 ## Installation
 
 1. Install the required packages:
    ```bash
-   pip install opencv-python numpy mediapipe
+   pip install opencv-python numpy
    ```
-
-2. The MediaPipe hand landmarker model (`hand_landmarker.task`) will be downloaded automatically on first run.
 
 ## Usage
 
 Run the ASCII Camera application:
 ```bash
-python ascii_camera.py
+python ascii_cam.py
 ```
 
 ### Controls
@@ -48,103 +38,69 @@ python ascii_camera.py
 | Key | Action |
 |-----|--------|
 | `q` | Quit the application |
-| `f` | Toggle face detection (ghostly white boxes) |
-| `h` | Toggle hand landmark visualization |
-| `0` | Filter: None (original feed) |
-| `1` | Filter: Grayscale |
-| `2` | Filter: **ASCII Art** (default) |
-| `3` | Filter: Glitch Effect |
-
-### Hand Gestures
-
-| Gesture | Action |
-|---------|--------|
-| **L-Shape** (both hands, thumb+index extended) | Toggle point manipulation mode ON/OFF. When enabled, initializes 4 points as a rectangle based on hand positions. |
-| **Pinch** (thumb+index touching) | While point manipulation is active: select and drag the nearest point to reshape the filter region. |
-| **L-Shape Again** (when points active) | Toggle point manipulation OFF (points persist for next toggle) |
-
-### Point Manipulation Workflow
-
-1. Make an **L-shape with both hands** (thumb and index finger extended on each hand)
-2. Four yellow points appear forming a rectangle between your hands
-3. **Pinch** (touch thumb to index) on either hand near a point to select it (turns red)
-4. Move your pinched hand to **drag the point** and reshape the quadrilateral
-5. Release pinch to drop the point
-6. Make **L-shape again** to hide points (they persist for next session)
-7. Press `2` for ASCII Art filter to see the effect inside your custom region
+| `f` | Toggle fullscreen mode |
 
 ## How It Works
 
 ### ASCII Art Rendering Pipeline
 
-1. **Capture**: Webcam feed at best available resolution (requests 960×540 @ 60 FPS)
-2. **Region Processing**: If point manipulation active, crops to quadrilateral mask bounding box
-3. **Grayscale Conversion**: Pre-computed once per frame/region for efficiency
-4. **Cell Grid**: Divides region into 5×10 pixel cells (~128×48 = 6,144 characters at 640×480)
-5. **Brightness Mapping**: Each cell's average brightness maps to a character from 74-symbol set
-6. **Color Sampling**: Each cell's average color used for character rendering (or white for pure ASCII mode)
-7. **Rendering**: Characters drawn with `cv2.FONT_HERSHEY_SIMPLEX` at scale 0.3, thickness 1
-8. **Display Upscale**: Result upscaled to 1600×900 using `INTER_NEAREST` for crisp ASCII preservation
+1. **Capture**: Webcam feed at 1920×1080 (16:9) using DirectShow backend on Windows
+2. **Grayscale Conversion**: Frame converted to grayscale for brightness calculation
+3. **Contrast & Brightness Enhancement**: Applied via `cv2.convertScaleAbs` (alpha=2.2, beta=25)
+4. **Cell Grid**: Divides frame into 6×12 pixel cells
+5. **Brightness Mapping**: Each cell's average brightness (+45 offset) maps to character from extended 74-symbol set
+6. **Color Sampling**: Each cell's average BGR color used for character rendering
+7. **Rendering**: Characters drawn with `cv2.FONT_HERSHEY_SIMPLEX` at scale 0.45, thickness 1
+8. **Display**: Fullscreen window with ASCII art overlay
 
-### Hand Gesture Recognition
+### Character Set
 
-- **MediaPipe Hand Landmarker** (Tasks API, VIDEO mode) detects 21 landmarks per hand
-- **L-Shape Detection**: Measures thumb-to-index distance relative to hand size (wrist to middle MCP)
-- **Pinch Detection**: Normalized distance between thumb and index tips < 0.04 threshold
-- **Handedness**: Uses MediaPipe's classification or falls back to thumb/index X-position heuristic
-
-### Filter Application
-
-- Quadrilateral mask created from 4 points using `cv2.fillPoly`
-- Filter applied only inside mask via `np.where(mask_3ch, filtered_layer, original_frame)`
-- Outside mask region shows original webcam feed unchanged
+74 symbols ordered from darkest to lightest:
+```
+@%#*+=-:.WM$&8B@QO0ZCLUXJYuunxrqphkbdpwamIzwiI!l;:;,^"'.`
+```
 
 ## Technical Specifications
 
 | Aspect | Specification |
 |--------|---------------|
-| Processing Resolution | Adaptive (requests 960×540, uses webcam capability) |
-| ASCII Cell Size | 5×10 pixels |
-| Character Grid | ~128 cols × 48 rows = ~6,144 chars/frame (at 640×480) |
-| Character Set | 74 symbols (dense to fine: `@%#*+=-:.WM$&8B@QO0ZCLUXJYuunxrqphkbdpwamIzwiI!l;:;,^"'.` + ` ,.-~:;+!*#$%&`) |
-| Display Resolution | 1600×900 (upscaled via INTER_NEAREST) |
-| Brightness Boost | +15 (moderate) |
-| Contrast Enhancement | alpha=1.8 |
-| Font | FONT_HERSHEY_SIMPLEX, scale 0.3, thickness 1 |
-| Target FPS | 60 (requested), 15-30 actual |
-| CPU Optimization | Region-based processing, pre-computed grayscale, INTER_NEAREST upscale |
+| Target Resolution | 1920×1080 (16:9 Full HD) |
+| ASCII Cell Size | 6×12 pixels |
+| Character Grid | ~320 cols × 90 rows = ~28,800 chars/frame (at 1920×1080) |
+| Character Set | 74 symbols (dense to fine) |
+| Contrast (alpha) | 2.2 |
+| Brightness (beta) | 25 |
+| Cell Brightness Offset | +45 |
+| Font | FONT_HERSHEY_SIMPLEX, scale 0.45, thickness 1 |
+| Backend | DirectShow (CAP_DSHOW) on Windows |
+| Target FPS | 30+ |
 
 ## Troubleshooting
 
-- **Webcam not opening**: Ensure no other application is using the webcam. Try changing `cv2.VideoCapture(0)` to `cv2.VideoCapture(1)` if you have multiple cameras.
-- **Model download failed**: Check your internet connection. The script downloads `hand_landmarker.task` from Google's storage APIs.
-- **Poor gesture detection**: Ensure good lighting, keep hands visible, and make deliberate gestures.
-- **Low FPS**: Close other applications. The app is optimized but real-time ASCII rendering is CPU-intensive.
-- **ASCII too small/detail hard to see**: Resize the window larger, sit farther back, or ensure good lighting for contrast.
+- **Webcam not opening**: Ensure no other application is using the webcam. The script uses `cv2.CAP_DSHOW` backend on Windows for best compatibility.
+- **Resolution not 1920×1080**: Some cameras don't support Full HD. The script will use the highest available resolution.
+- **ASCII too dim**: The script includes brightness/contrast enhancement. Adjust `alpha`, `beta`, and brightness offset in `apply_ascii_art()` if needed.
+- **Low FPS**: Close other applications. The app is optimized for real-time rendering.
 
 ## Project Structure
 
 ```
-face_detection_project/
-├── ascii_camera.py            # Main ASCII Camera application
-├── ascii-camera               # Standalone ASCII camera feed (simpler version)
-├── hand_landmarker.task       # MediaPipe model (downloaded automatically)
-├── README.md                  # This file
-├── PROJECT_EXPLANATION.md     # Technical architecture deep-dive
-├── USER_GUIDE.md              # Complete user guide and feature summary
-├── LEARNED.md                 # Skills and concepts learned
-├── FIXES.md                   # Bug fixes and appearance corrections
-├── DETAIL_ENHANCEMENT.md      # Detail improvement history
-├── CHANGELOG.md               # Chronological history of all changes
-├── ULTRA_DETAIL.md            # Ultra-detail enhancement specifications
-├── VIDEO_MATCHING.md          # Video matching analysis and implementation
+ASCII_CAM/
+├── ascii_cam.py            # Main entry point - simple full-frame ASCII feed
+├── ascii_camera.py         # Advanced version with face/hand detection & gestures
+├── face_detection_final.py # Original feature-complete version
+├── hand_landmarker.task    # MediaPipe model (for advanced versions)
+└── README.md               # This file
 ```
+
+## Alternative Versions
+
+- **`ascii_camera.py`**: Complex version with face detection, hand landmark tracking, point manipulation, and 4 filter modes (None, Grayscale, ASCII Art, Glitch). Requires MediaPipe.
+- **`face_detection_final.py`**: Original feature-complete version with all advanced features.
 
 ## Acknowledgments
 
-- **OpenCV** team for computer vision library and Haar Cascade face detection
-- **MediaPipe** team for Hand Landmarker solution (Tasks API)
-- **Google** for hosting MediaPipe model files
+- **OpenCV** team for computer vision library
 - Original ASCII art character set inspiration from various ASCII art communities
 
 ## License
