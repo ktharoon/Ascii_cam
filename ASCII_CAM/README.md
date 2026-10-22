@@ -87,16 +87,8 @@ python ascii_cam.py
 ```
 ASCII_CAM/
 ├── ascii_cam.py            # Main entry point - simple full-frame ASCII feed
-├── ascii_camera.py         # Advanced version with face/hand detection & gestures
-├── face_detection_final.py # Original feature-complete version
-├── hand_landmarker.task    # MediaPipe model (for advanced versions)
 └── README.md               # This file
 ```
-
-## Alternative Versions
-
-- **`ascii_camera.py`**: Complex version with face detection, hand landmark tracking, point manipulation, and 4 filter modes (None, Grayscale, ASCII Art, Glitch). Requires MediaPipe.
-- **`face_detection_final.py`**: Original feature-complete version with all advanced features.
 
 ## Acknowledgments
 
